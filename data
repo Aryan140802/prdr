@@ -1,0 +1,73 @@
+{status: "NOT IN SYNC", ip1: "10.188.25.63", ip2: "10.177.41.63", differnces: {missing_in_env1: [],…}}
+differnces
+: 
+{missing_in_env1: [],…}
+missing_in_env1
+: 
+[]
+missing_in_env2
+: 
+["GCC_EXP:4418", "NON_CBS_ACCOUNT_EXP:4426", "NP_EXP:4420", "MISC_1208_EXP:4415",…]
+0
+: 
+"GCC_EXP:4418"
+1
+: 
+"NON_CBS_ACCOUNT_EXP:4426"
+2
+: 
+"NP_EXP:4420"
+3
+: 
+"MISC_1208_EXP:4415"
+4
+: 
+"JANSURAKSHA_EXP:4416"
+5
+: 
+"WEB_APP_EKYC_EXP:4429"
+6
+: 
+"MISC_EXP_UPI:4422"
+7
+: 
+"WEB_APP_BROKER_EXP:4423"
+8
+: 
+"MISC_EXP_02:4417"
+9
+: 
+"MISC_EXP:4419"
+10
+: 
+"NP_SPL:4421"
+11
+: 
+"YONO_EXP_02:4428"
+12
+: 
+"CUST_NCBS_EXP:4425"
+13
+: 
+"YONO_EXP_01:4424 -> Yono_E_01 -> Service: TDSEnquiryMicroService_expDS"
+14
+: 
+"YONO_EXP_01:4424 -> Yono_E_01 -> Service: microserviceCIFEnquiry_expDS"
+15
+: 
+"YONO_EXP_01:4424 -> Yono_E_01 -> Service: custEnquiryMicro_expDS"
+16
+: 
+"YONO_EXP_01:4424 -> Yono_E_01 -> Service: microserviceDedupe_expDS"
+property_mismatches
+: 
+[]
+ip1
+: 
+"10.188.25.63"
+ip2
+: 
+"10.177.41.63"
+status
+: 
+"NOT IN SYNC"
