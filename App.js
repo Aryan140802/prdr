@@ -87,7 +87,7 @@ function getPairs() {
 }
 
 const PAIRS = getPairs();
-const API_URL = "https://10.191.171.12:5443/EISHOME/prdSync/checkSyncIPSpecific/";
+const API_URL = "https://10.191.171.12:5443/EISHOME/prDrSync/checkSyncIPSpecific/";
 
 const GROUPS = [
   { id: "a", label: "SUBNET A", sublabel: "10.188.24.x  /  10.177.40.x", prefix: "10.188.24." },
@@ -316,12 +316,28 @@ const css = `
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const oct = ip => ip.split(".")[3];
 
+// API has a typo "differnces" — handle both spellings
+function getDiff(data) {
+  return data?.differnces ?? data?.differences ?? null;
+}
+
+// Parse flat string "YONO_EXP_01:4424 -> Yono_E_01 -> Service: TDSEnquiryMicroService_expDS"
+function parseEntry(str) {
+  const arrowParts = str.split(" -> ");
+  const first = arrowParts[0];
+  const colonIdx = first.lastIndexOf(":");
+  const name = colonIdx > -1 ? first.slice(0, colonIdx).trim() : first.trim();
+  const port = colonIdx > -1 ? first.slice(colonIdx + 1).trim() : null;
+  const trail = arrowParts.slice(1);
+  return { name, port, trail };
+}
+
 function downloadCSV(pairs, results) {
   const rows = [["PR IP","DR IP","Status","Missing in DR","Missing in PR","Error","Checked At"]];
   for (const p of pairs) {
     const r = results[p.id];
     if (!r) { rows.push([p.pr, p.dr,"PENDING","","","",""]); continue; }
-    const d = r.data?.differences;
+    const d = getDiff(r.data);
     rows.push([
       p.pr, p.dr,
       r.loading ? "CHECKING" : r.error ? "ERROR" : (r.data?.status || ""),
@@ -355,7 +371,7 @@ function Spinner({ size=14, color=C.accent }) {
 
 function ServerCard({ pair, result, onClick }) {
   const state = cardState(result);
-  const diff = result?.data?.differences;
+  const diff = getDiff(result?.data);
   const diffCount = diff ? (diff.missing_in_env2?.length||0)+(diff.missing_in_env1?.length||0) : 0;
   let cardCls = "sc";
   if (state==="synced")  cardCls+=" synced";
@@ -387,158 +403,112 @@ function ServerCard({ pair, result, onClick }) {
   );
 }
 
-// ─── Diagnostic diff section ──────────────────────────────────────────────────
-function DiagDiffTable({ items, type }) {
-  const [expanded, setExpanded] = useState(true);
-  if (!items?.length) return null;
+// ─── Entry list (flat string arrays) ─────────────────────────────────────────
+function EntryList({ items, type, collapsed, onToggle }) {
+  if (!items || items.length === 0) return null;
   const isMissDR = type === "env2";
-  const color = isMissDR ? C.red : C.amber;
-  const rowCls = isMissDR ? "diff-row miss-dr" : "diff-row miss-pr";
-  const heading = isMissDR
-    ? "Configuration missing on DR — DR is behind PR"
-    : "Configuration missing on PR — PR doesn't have what DR has";
+  const color = isMissDR ? "C_RED" : "C_AMBER";
+  const colorVal = isMissDR ? C.red : C.amber;
+  const bgVal = isMissDR ? C.redBg : C.amberBg;
+  const borderVal = isMissDR ? C.redBorder : C.amberBorder;
   const icon = isMissDR ? "⬇" : "⬆";
-  const bgIcon = isMissDR ? C.redBg : C.amberBg;
+  const heading = isMissDR
+    ? "Present on PR but missing on DR — DR needs to be updated"
+    : "Present on DR but missing on PR — needs investigation";
 
   return (
-    <div className="diag-section">
-      <div className="diag-header">
-        <div className="diag-icon" style={{ background: bgIcon, border:`1px solid ${color}33` }}>
-          <span style={{ color }}>{icon}</span>
+    <div style={{ marginBottom: 20 }}>
+      {/* Section header */}
+      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10, paddingBottom:8, borderBottom:`1px solid ${C.border}` }}>
+        <div style={{ width:28, height:28, borderRadius:7, display:"flex", alignItems:"center", justifyContent:"center", background:bgVal, border:`1px solid ${colorVal}33`, flexShrink:0 }}>
+          <span style={{ color:colorVal, fontSize:13 }}>{icon}</span>
         </div>
         <div style={{ flex:1 }}>
-          <div style={{ fontSize:11, fontWeight:700, color, letterSpacing:"0.07em" }}>
-            {isMissDR ? "MISSING IN DR" : "MISSING IN PR"}
-            <span className="diag-badge" style={{ marginLeft:8, background:`${color}18`, color, border:`1px solid ${color}33` }}>
-              {items.length} {items.length === 1 ? "issue" : "issues"}
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <span style={{ fontSize:11, fontWeight:700, color:colorVal, letterSpacing:"0.07em" }}>
+              {isMissDR ? "MISSING IN DR" : "MISSING IN PR"}
+            </span>
+            <span style={{ fontSize:10, fontWeight:700, color:colorVal, background:`${colorVal}18`, border:`1px solid ${colorVal}33`, borderRadius:20, padding:"1px 8px" }}>
+              {items.length} {items.length === 1 ? "entry" : "entries"}
             </span>
           </div>
           <div style={{ fontSize:11, color:C.textSub, marginTop:2 }}>{heading}</div>
         </div>
         <button
           className="btn btn-ghost"
-          style={{ padding:"3px 9px", fontSize:11 }}
-          onClick={() => setExpanded(o => !o)}
+          style={{ padding:"3px 10px", fontSize:11 }}
+          onClick={onToggle}
         >
-          {expanded ? "COLLAPSE" : "EXPAND"}
+          {collapsed ? "SHOW" : "HIDE"}
         </button>
       </div>
 
-      {expanded && (
-        <table className="diff-table">
-          <thead>
-            <tr>
-              <th style={{ width:"40%" }}>Location / Path</th>
-              <th style={{ width:"18%" }}>Property</th>
-              <th style={{ width:"21%" }}>PR Value</th>
-              <th style={{ width:"21%" }}>DR Value</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((d, i) => (
-              <tr key={i} className={rowCls}>
-                <td>
-                  <span style={{ color:C.textSub, wordBreak:"break-all", lineHeight:1.5, display:"block" }}>
-                    {d.location || <em style={{ color:C.textMuted }}>—</em>}
-                  </span>
-                </td>
-                <td>
-                  <span style={{ color:C.text, fontWeight:700 }}>{d.property || "—"}</span>
-                </td>
-                <td>
-                  {d.env1 !== undefined
-                    ? <span className={`val-chip ${d.env1 ? "val-pr" : "val-empty"}`}>{d.env1 || "(empty)"}</span>
-                    : <span style={{ color:C.textMuted, fontSize:11 }}>—</span>
-                  }
-                </td>
-                <td>
-                  {d.env2 !== undefined
-                    ? <span className={`val-chip ${d.env2 ? "val-dr" : "val-empty"}`}>{d.env2 || "(empty)"}</span>
-                    : <span style={{ color:C.textMuted, fontSize:11 }}>—</span>
-                  }
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
-
-// ─── Grouped by location view ─────────────────────────────────────────────────
-function GroupedDiffView({ diff }) {
-  const allItems = [
-    ...(diff.missing_in_env2 || []).map(d => ({ ...d, _kind:"env2" })),
-    ...(diff.missing_in_env1 || []).map(d => ({ ...d, _kind:"env1" })),
-  ];
-  const grouped = {};
-  for (const item of allItems) {
-    const loc = item.location || "(unknown)";
-    if (!grouped[loc]) grouped[loc] = [];
-    grouped[loc].push(item);
-  }
-  const locations = Object.keys(grouped);
-
-  return (
-    <div>
-      {locations.map((loc, li) => (
-        <div key={li} style={{ marginBottom:14 }}>
-          <div style={{ fontSize:10, color:C.accent, fontWeight:700, letterSpacing:"0.07em", marginBottom:6, display:"flex", alignItems:"center", gap:8 }}>
-            <span style={{ color:C.textMuted }}>PATH</span>
-            <span style={{ color:C.textSub, wordBreak:"break-all" }}>{loc}</span>
-          </div>
-          {grouped[loc].map((item, i) => {
-            const isMissDR = item._kind === "env2";
-            const color = isMissDR ? C.red : C.amber;
-            const label = isMissDR ? "MISSING IN DR" : "MISSING IN PR";
+      {/* Entry rows */}
+      {!collapsed && (
+        <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+          {items.map((entry, i) => {
+            const { name, port, trail } = parseEntry(entry);
             return (
-              <div key={i} className={`dr ${isMissDR ? "d2" : "d1"}`} style={{ display:"flex", alignItems:"flex-start", gap:14, flexWrap:"wrap" }}>
-                <span style={{ fontSize:9, fontWeight:700, color, letterSpacing:"0.08em", marginTop:2, flexShrink:0 }}>{label}</span>
-                <span style={{ fontSize:12 }}>
-                  <span style={{ color:C.textMuted }}>property </span>
-                  <span style={{ color:C.text, fontWeight:700 }}>{item.property}</span>
+              <div key={i} style={{
+                background: C.card,
+                border: `1px solid ${C.border}`,
+                borderLeft: `3px solid ${colorVal}`,
+                borderRadius: 6,
+                padding: "9px 12px",
+                display:"flex", alignItems:"flex-start", gap:12, flexWrap:"wrap"
+              }}>
+                {/* Row number */}
+                <span style={{ fontSize:10, color:C.textMuted, fontWeight:700, minWidth:22, paddingTop:1 }}>
+                  {String(i+1).padStart(2,"0")}
                 </span>
-                {item.env1 !== undefined && (
-                  <span style={{ fontSize:12 }}>
-                    <span style={{ color:C.textMuted }}>PR </span>
-                    <span className={`val-chip ${item.env1 ? "val-pr" : "val-empty"}`}>{item.env1 || "(empty)"}</span>
+                {/* Name chip */}
+                <span style={{
+                  fontSize:12, fontWeight:700, color:colorVal,
+                  background:`${colorVal}12`, border:`1px solid ${colorVal}28`,
+                  borderRadius:4, padding:"2px 8px", flexShrink:0
+                }}>
+                  {name}
+                </span>
+                {/* Port */}
+                {port && (
+                  <span style={{ fontSize:11, color:C.textMuted, flexShrink:0, paddingTop:2 }}>
+                    <span style={{ color:C.textMuted, marginRight:3 }}>PORT</span>
+                    <span style={{ color:C.textSub, fontWeight:700 }}>{port}</span>
                   </span>
                 )}
-                {item.env2 !== undefined && (
-                  <span style={{ fontSize:12 }}>
-                    <span style={{ color:C.textMuted }}>DR </span>
-                    <span className={`val-chip ${item.env2 ? "val-dr" : "val-empty"}`}>{item.env2 || "(empty)"}</span>
+                {/* Breadcrumb trail */}
+                {trail.length > 0 && (
+                  <span style={{ fontSize:11, color:C.textMuted, flex:1, minWidth:120, paddingTop:2, lineHeight:1.5 }}>
+                    {trail.map((seg, si) => (
+                      <span key={si}>
+                        {si > 0 && <span style={{ color:C.textMuted, margin:"0 4px" }}>›</span>}
+                        <span style={{ color:C.textSub }}>{seg}</span>
+                      </span>
+                    ))}
                   </span>
                 )}
               </div>
             );
           })}
         </div>
-      ))}
+      )}
     </div>
   );
 }
 
 // ─── Detail Modal ─────────────────────────────────────────────────────────────
 function DetailModal({ pair, result, onClose }) {
-  const [view, setView] = useState("table"); // "table" | "grouped"
+  const [collapseDR, setCollapseDR] = useState(false);
+  const [collapsePR, setCollapsePR] = useState(false);
 
-  const data   = result?.data;
-  const status = data?.status;
-  const isSynced = status === "IN SYNC";
-  const diff   = data?.differences;
-  const missDR = diff?.missing_in_env2 || [];
-  const missPR = diff?.missing_in_env1 || [];
+  const data     = result?.data;
+  const isSynced = data?.status === "IN SYNC";
+  const diff     = getDiff(data);
+  const missDR   = diff?.missing_in_env2 || [];
+  const missPR   = diff?.missing_in_env1 || [];
   const totalDiff = missDR.length + missPR.length;
-  const state  = cardState(result);
+  const state    = cardState(result);
   const barColor = state==="synced" ? C.green : state==="drifted" ? C.red : C.amber;
-
-  // health breakdown
-  const checks = [
-    { label:"DR missing config",  count:missDR.length, color:C.red,   icon:"⬇", desc:"Items present on PR but absent on DR" },
-    { label:"PR missing config",  count:missPR.length, color:C.amber, icon:"⬆", desc:"Items present on DR but absent on PR" },
-  ];
 
   return (
     <div className="overlay" onClick={e => e.target===e.currentTarget && onClose()}>
@@ -549,7 +519,7 @@ function DetailModal({ pair, result, onClose }) {
             <div style={{ width:3, height:26, borderRadius:2, background:barColor, boxShadow:`0 0 8px ${barColor}88` }} />
             <div>
               <div style={{ fontSize:15, fontWeight:700, letterSpacing:"0.04em" }}>
-                Server Pair <span style={{ color:C.accent }}>.{oct(pair.pr)}</span>
+                Server Pair&nbsp;<span style={{ color:C.accent }}>.{oct(pair.pr)}</span>
                 <span className={`slabel ${state}`} style={{ marginLeft:10, verticalAlign:"middle" }}>{STATE_LABEL[state]}</span>
               </div>
               <div style={{ fontSize:11, color:C.textMuted, marginTop:3 }}>{result?.timestamp}</div>
@@ -570,86 +540,59 @@ function DetailModal({ pair, result, onClose }) {
               </div>
               <div style={{ fontSize:12, color:C.textSub, lineHeight:1.6 }}>{result.error}</div>
               <div style={{ marginTop:8, fontSize:11, color:C.textMuted }}>
-                This could indicate a network issue, the server is unreachable, or the sync API returned an unexpected response.
-                Verify connectivity to <span style={{ color:C.text }}>{pair.pr}</span> and <span style={{ color:C.text }}>{pair.dr}</span> before retrying.
+                Verify connectivity to <span style={{ color:C.text }}>{pair.pr}</span> and <span style={{ color:C.text }}>{pair.dr}</span>.
               </div>
             </div>
           )}
 
-          {/* Server info row */}
+          {/* Server info cards */}
           <div style={{ display:"flex", gap:10, marginBottom:16, flexWrap:"wrap" }}>
-            {[
-              { label:"PR SERVER", val:pair.pr, color:C.accent, sub:"Primary / Production" },
-              { label:"DR SERVER", val:pair.dr, color:C.green,  sub:"Disaster Recovery" },
-            ].map(s => (
-              <div key={s.label} style={{ flex:1, minWidth:140, background:C.card, border:`1px solid ${C.border}`, borderRadius:7, padding:"10px 14px" }}>
-                <div style={{ fontSize:9, color:C.textMuted, fontWeight:700, letterSpacing:"0.1em", marginBottom:2 }}>{s.label}</div>
-                <div style={{ fontSize:13, color:s.color, fontWeight:700 }}>{s.val}</div>
-                <div style={{ fontSize:10, color:C.textMuted, marginTop:2 }}>{s.sub}</div>
-              </div>
-            ))}
+            <div style={{ flex:1, minWidth:140, background:C.card, border:`1px solid ${C.border}`, borderRadius:7, padding:"10px 14px" }}>
+              <div style={{ fontSize:9, color:C.textMuted, fontWeight:700, letterSpacing:"0.1em", marginBottom:2 }}>PR SERVER</div>
+              <div style={{ fontSize:13, color:C.accent, fontWeight:700 }}>{pair.pr}</div>
+              <div style={{ fontSize:10, color:C.textMuted, marginTop:2 }}>Primary / Production</div>
+            </div>
+            <div style={{ flex:1, minWidth:140, background:C.card, border:`1px solid ${C.border}`, borderRadius:7, padding:"10px 14px" }}>
+              <div style={{ fontSize:9, color:C.textMuted, fontWeight:700, letterSpacing:"0.1em", marginBottom:2 }}>DR SERVER</div>
+              <div style={{ fontSize:13, color:C.green, fontWeight:700 }}>{pair.dr}</div>
+              <div style={{ fontSize:10, color:C.textMuted, marginTop:2 }}>Disaster Recovery</div>
+            </div>
             {!isSynced && totalDiff > 0 && (
-              <div style={{ flex:1, minWidth:140, background:`rgba(255,64,96,0.06)`, border:`1px solid ${C.redBorder}`, borderRadius:7, padding:"10px 14px" }}>
+              <div style={{ flex:1, minWidth:140, background:"rgba(255,64,96,0.06)", border:`1px solid ${C.redBorder}`, borderRadius:7, padding:"10px 14px" }}>
                 <div style={{ fontSize:9, color:C.textMuted, fontWeight:700, letterSpacing:"0.1em", marginBottom:2 }}>TOTAL ISSUES</div>
-                <div style={{ fontSize:22, color:C.red, fontWeight:700, lineHeight:1 }}>{totalDiff}</div>
-                <div style={{ fontSize:10, color:C.textMuted, marginTop:3 }}>config differences found</div>
+                <div style={{ display:"flex", alignItems:"baseline", gap:8 }}>
+                  <span style={{ fontSize:22, color:C.red, fontWeight:700, lineHeight:1 }}>{totalDiff}</span>
+                  <span style={{ fontSize:10, color:C.textMuted }}>entries differ</span>
+                </div>
+                <div style={{ display:"flex", gap:10, marginTop:4 }}>
+                  {missDR.length > 0 && <span style={{ fontSize:10, color:C.red }}>⬇ {missDR.length} in DR</span>}
+                  {missPR.length > 0 && <span style={{ fontSize:10, color:C.amber }}>⬆ {missPR.length} in PR</span>}
+                </div>
               </div>
             )}
           </div>
 
-          {/* In-sync celebration */}
+          {/* In-sync state */}
           {isSynced && (
-            <div style={{ textAlign:"center", padding:"30px 0", background:`rgba(0,214,143,0.04)`, borderRadius:10, border:`1px solid ${C.greenBorder}`, marginBottom:16 }}>
+            <div style={{ textAlign:"center", padding:"30px 0", background:"rgba(0,214,143,0.04)", borderRadius:10, border:`1px solid ${C.greenBorder}` }}>
               <div style={{ fontSize:32, marginBottom:8 }}>✓</div>
               <div style={{ fontSize:20, fontWeight:700, color:C.green, letterSpacing:"0.05em", marginBottom:6 }}>FULLY IN SYNC</div>
               <div style={{ fontSize:13, color:C.textSub }}>No configuration drift detected between PR and DR.</div>
-              <div style={{ fontSize:11, color:C.textMuted, marginTop:4 }}>Both servers are running identical configurations.</div>
             </div>
           )}
 
-          {/* Drift present: summary + diff tables */}
-          {!isSynced && diff && totalDiff > 0 && (
+          {/* Out of sync: entry lists */}
+          {!isSynced && diff && (
             <>
-              {/* Summary bar */}
-              <div className="summary-bar">
-                <span style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:"0.08em", marginRight:4 }}>BREAKDOWN</span>
-                {checks.map(c => c.count > 0 && (
-                  <div key={c.label} className="summary-pill" style={{ background:`${c.color}14`, border:`1px solid ${c.color}30` }}>
-                    <span style={{ color:c.color }}>{c.icon}</span>
-                    <span style={{ color:c.color, fontWeight:700 }}>{c.count}</span>
-                    <span style={{ color:C.textSub }}>{c.label}</span>
-                  </div>
-                ))}
-                <span style={{ marginLeft:"auto", fontSize:10, color:C.textMuted }}>
-                  DR must be updated to resolve {missDR.length > 0 ? `${missDR.length} missing item${missDR.length!==1?"s":""}` : ""}{missDR.length>0&&missPR.length>0?" and ":""}{missPR.length > 0 ? `${missPR.length} extra item${missPR.length!==1?"s":""} need review` : ""}
-                </span>
-              </div>
-
-              {/* View toggle */}
-              <div style={{ display:"flex", borderBottom:`1px solid ${C.border}`, marginBottom:16 }}>
-                <button className={`tab-btn ${view==="table"?"on":""}`} onClick={() => setView("table")}>BY TYPE</button>
-                <button className={`tab-btn ${view==="grouped"?"on":""}`} onClick={() => setView("grouped")}>BY LOCATION</button>
-              </div>
-
-              {view === "table" && (
-                <>
-                  <DiagDiffTable items={missDR} type="env2" />
-                  <DiagDiffTable items={missPR} type="env1" />
-                </>
+              <EntryList items={missDR} type="env2" collapsed={collapseDR} onToggle={() => setCollapseDR(v => !v)} />
+              <EntryList items={missPR} type="env1" collapsed={collapsePR} onToggle={() => setCollapsePR(v => !v)} />
+              {totalDiff === 0 && (
+                <div style={{ background:C.redBg, border:`1px solid ${C.redBorder}`, borderRadius:7, padding:"12px 16px" }}>
+                  <div style={{ fontSize:11, fontWeight:700, color:C.red, letterSpacing:"0.07em", marginBottom:4 }}>OUT OF SYNC — NO DIFF DETAIL</div>
+                  <div style={{ fontSize:12, color:C.textSub }}>The API reported this pair as out of sync but returned no specific entries.</div>
+                </div>
               )}
-              {view === "grouped" && <GroupedDiffView diff={diff} />}
             </>
-          )}
-
-          {/* Drifted but no parsed diff details */}
-          {!isSynced && !result?.error && (!diff || totalDiff === 0) && (
-            <div style={{ background:C.redBg, border:`1px solid ${C.redBorder}`, borderRadius:7, padding:"12px 16px" }}>
-              <div style={{ fontSize:11, fontWeight:700, color:C.red, letterSpacing:"0.07em", marginBottom:4 }}>OUT OF SYNC — NO DIFF DETAIL</div>
-              <div style={{ fontSize:12, color:C.textSub }}>
-                The API reported this pair as out of sync but did not return any specific diff details.
-                This may indicate a structural configuration mismatch or a non-property-level divergence.
-              </div>
-            </div>
           )}
         </div>
 
