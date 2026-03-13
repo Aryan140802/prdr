@@ -55,7 +55,7 @@ def read_etc_hosts():
 def parse_openssl_cert(file_path):
     cmd = ["openssl", "x509", "-in", file_path,
            "-noout", "-startdate", "-enddate",
-           "-fingerprint", "-subject"]
+           "-fingerprint", "-sha256", "-subject"]
     output = run(cmd)
     if not output:
         return {"error": "Unable to read certificate"}
@@ -66,8 +66,12 @@ def parse_openssl_cert(file_path):
             data["valid_from"] = line.split("=", 1)[1]
         elif line.startswith("notAfter="):
             data["valid_to"] = line.split("=", 1)[1]
-        elif "Fingerprint" in line:
-            data["sha1"] = line.split("=", 1)[1]
+        elif "SHA256 Fingerprint" in line:
+            data["fingerprint"] = line.split("=", 1)[1]
+            data["fingerprint_type"] = "SHA256"
+        elif "Fingerprint" in line and "fingerprint" not in data:
+            data["fingerprint"] = line.split("=", 1)[1]
+            data["fingerprint_type"] = "SHA1"
         elif line.startswith("subject="):
             data["subject"] = line.split("=", 1)[1]
     return data
@@ -114,8 +118,12 @@ def read_jks_store(path):
                 parts = line.split("until:")
                 data["valid_from"] = parts[0].split("from:")[1].strip()
                 data["valid_to"] = parts[1].strip() if len(parts) > 1 else ""
-            elif "SHA1:" in line:
-                data["sha1"] = line.split("SHA1:")[1].strip()
+            elif "SHA256:" in line:
+                data["fingerprint"] = line.split("SHA256:")[1].strip()
+                data["fingerprint_type"] = "SHA256"
+            elif "SHA1:" in line and "fingerprint" not in data:
+                data["fingerprint"] = line.split("SHA1:")[1].strip()
+                data["fingerprint_type"] = "SHA1"
 
         if alias and len(data) > 1:
             certs[alias] = data
