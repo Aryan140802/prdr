@@ -55,21 +55,26 @@ def read_etc_hosts():
 def parse_openssl_cert(file_path):
     cmd = ["openssl", "x509", "-in", file_path,
            "-noout", "-startdate", "-enddate",
-           "-fingerprint", "-subject"]
+           "-fingerprint", "-subject", "-text"]
     output = run(cmd)
     if not output:
         return {"error": "Unable to read certificate"}
 
     data = {}
     for line in output.splitlines():
-        if line.startswith("notBefore="):
-            data["valid_from"] = line.split("=", 1)[1]
-        elif line.startswith("notAfter="):
-            data["valid_to"] = line.split("=", 1)[1]
-        elif "Fingerprint" in line:
-            data["sha1"] = line.split("=", 1)[1]
-        elif line.startswith("subject="):
-            data["subject"] = line.split("=", 1)[1]
+        line_stripped = line.strip()
+        if line_stripped.startswith("notBefore="):
+            data["valid_from"] = line_stripped.split("=", 1)[1]
+        elif line_stripped.startswith("notAfter="):
+            data["valid_to"] = line_stripped.split("=", 1)[1]
+        elif "Fingerprint" in line_stripped:
+            data["sha1"] = line_stripped.split("=", 1)[1]
+        elif line_stripped.startswith("subject="):
+            data["subject"] = line_stripped.split("=", 1)[1]
+        elif line_stripped.startswith("Signature Algorithm:") and "algorithm" not in data:
+            data["algorithm"] = line_stripped.split(":", 1)[1].strip()
+        elif line_stripped.startswith("Public Key Algorithm:") and "algorithm" not in data:
+            data["algorithm"] = line_stripped.split(":", 1)[1].strip()
     return data
 
 
@@ -116,6 +121,8 @@ def read_jks_store(path):
                 data["valid_to"] = parts[1].strip() if len(parts) > 1 else ""
             elif "SHA1:" in line:
                 data["sha1"] = line.split("SHA1:")[1].strip()
+            elif line.startswith("Signature algorithm name:"):
+                data["algorithm"] = line.split(":", 1)[1].strip()
 
         if alias and len(data) > 1:
             certs[alias] = data
